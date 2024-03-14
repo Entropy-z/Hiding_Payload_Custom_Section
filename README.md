@@ -1,2 +1,4 @@
 # Custom_Section_PE 
-This is material from my journal, where I explain how it is done. Feel free to visit: https://oblivions-research.gitbook.io/
+It's about adding a custom section to a PE.
+
+For more information, visit my journal: https://oblivions-research.gitbook.io/
