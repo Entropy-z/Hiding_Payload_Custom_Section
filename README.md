@@ -9,6 +9,9 @@ The inserter.c create section in the remote PE with payload/shellcode.
 ## target.c
 The target.c retrive payload/shellcode in the new section created.
 
+## calc.bin
+Payload used for test.
+
 ## Usage
 ```sh
 .\inserter.exe -p <shellcode/payload.bin> -s <new section name> -e <pe path> -o <output pe name>
