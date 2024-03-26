@@ -1,7 +1,7 @@
 # Hiding_Payload_Custom_Section
 Demostration of how to insert a custom PE section and retrieve payload in custom section. 
 
-O projeto é composto de dois arquivos, o **inserter.c** e o **target.c**.
+The project is included two archives, the **inserter.c** and **target.c**.
 
 ## inserter.c
 The inserter.c create section in the remote PE with payload/shellcode. 
