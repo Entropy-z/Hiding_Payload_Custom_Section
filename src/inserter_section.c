@@ -7,6 +7,9 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
+	printf("######### 'BreakPoint' ########");
+	getchar();
+
 	PBYTE pShellcode;
 	SIZE_T stShellcode;
 	if(!ReadFileFromDisk(argv[3], &pShellcode, &stShellcode)){
