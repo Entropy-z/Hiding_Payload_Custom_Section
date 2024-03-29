@@ -42,6 +42,52 @@ _CLEANUP:
     return 0;
 }
 
+BOOL ReadFileFromDisk(LPCSTR lpFileName, PBYTE* pFile, SIZE_T* sFile) {
+
+	HANDLE	hFile = INVALID_HANDLE_VALUE;
+	PBYTE	pBuff = NULL;
+	DWORD	dwFileSize = NULL,
+		dwNumberOfBytesRead = NULL;
+
+	printf("[i] Reading \"%s\"...\n", lpFileName);
+
+	hFile = CreateFileA(lpFileName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		printf("\t[!] CreateFileA for binary file Failed With Error : %d \n", GetLastError());
+		goto _CLEANUP;
+	}
+
+	printf("\t[*] CreateFile for binary file Successfully\n");
+
+	dwFileSize = GetFileSize(hFile, NULL);
+	if (dwFileSize == NULL) {
+		printf("\t[!] GetFileSize for binary file Failed With Error : %d \n", GetLastError());
+		goto _CLEANUP;
+	}
+
+	pBuff = (PBYTE)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwFileSize);
+	if (pBuff == NULL) {
+		printf("\t[!] HeapAlloc for binary file Failed With Error : %d \n", GetLastError());
+		goto _CLEANUP;
+	}
+
+	printf("\t[*] Allocated buffer of binary file at: 0x%p\n\n", pBuff);
+
+	if (!ReadFile(hFile, pBuff, dwFileSize, &dwNumberOfBytesRead, NULL) || dwFileSize != dwNumberOfBytesRead) {
+		printf("\t[!] ReadFile for binary file Failed With Error : %d \n", GetLastError());
+		printf("\t[!] Bytes Read for binary file: %d of : %d \n\n", dwNumberOfBytesRead, dwFileSize);
+		goto _CLEANUP;
+	}
+
+_CLEANUP:
+	*pFile = (PBYTE)pBuff;
+	*sFile = (SIZE_T)dwFileSize;
+	if (hFile)
+		CloseHandle(hFile);
+	if (*pFile == NULL || *sFile == NULL)
+		return FALSE;
+	return TRUE;
+}
 
 BOOL MapView(HANDLE hPE, LPCSTR PeName,PHANDLE hMapFile, LPVOID* pImage, SIZE_T SctSize) {
     DWORD PreSize = GetFileSize(hPE, NULL);
@@ -52,7 +98,7 @@ BOOL MapView(HANDLE hPE, LPCSTR PeName,PHANDLE hMapFile, LPVOID* pImage, SIZE_T 
 	printf("\t[i] Shellcode sizeof(%d)\n", SctSize);
 
 	DWORD NewSize = P2ALIGNUP(GetFileSize(hPE, NULL) + SctSize, FILE_ALIGNMENT);
-	printf("\t[*] File sizeof(%d) after alignment at %s\n", NewSize,PeName);
+	printf("\t[*] File sizeof(%d) after alignment at %s\n", NewSize, PeName);
 
     *hMapFile = CreateFileMappingA(hPE, NULL, PAGE_READWRITE, 0, NewSize, NULL);
     if (*hMapFile == NULL) {
@@ -98,6 +144,9 @@ BOOL InsertCustomSection(LPVOID pPE, LPCSTR SctName, PVOID SctData, ULONG SctSiz
 	memcpy(&ScPayload->Name, SctName, 8);
 	printf("[*] Starting insert new section in PE file...\n");
 
+    printf("FILE ALIGNMENT: %d\n", pImgNtHdr->OptionalHeader.FileAlignment);
+    printf("SECTION ALIGNMENT: %d\n", pImgNtHdr->OptionalHeader.SectionAlignment);
+
 	ScPayload->Misc.VirtualSize = SctSize;
 	ScPayload->VirtualAddress	= P2ALIGNUP((ScLastHdr->VirtualAddress + ScLastHdr->Misc.VirtualSize), pImgNtHdr->OptionalHeader.SectionAlignment);
 	ScPayload->SizeOfRawData	= P2ALIGNUP(SctSize, pImgNtHdr->OptionalHeader.FileAlignment);
@@ -117,51 +166,4 @@ BOOL InsertCustomSection(LPVOID pPE, LPCSTR SctName, PVOID SctData, ULONG SctSiz
 	return TRUE;
 }
 
-BOOL ReadFileFromDisk(LPCSTR lpFileName, PBYTE* pFile, SIZE_T* sFile) {
-
-	HANDLE	hFile = INVALID_HANDLE_VALUE;
-	PBYTE	pBuff = NULL;
-	DWORD	dwFileSize = NULL,
-		dwNumberOfBytesRead = NULL;
-
-	printf("[i] Reading \"%s\"...\n", lpFileName);
-
-	hFile = CreateFileA(lpFileName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (hFile == INVALID_HANDLE_VALUE) {
-		printf("\t[!] CreateFileA for binary file Failed With Error : %d \n", GetLastError());
-		goto _CLEANUP;
-	}
-
-	printf("\t[*] CreateFile for binary file Successfully\n");
-
-	dwFileSize = GetFileSize(hFile, NULL);
-	if (dwFileSize == NULL) {
-		printf("\t[!] GetFileSize for binary file Failed With Error : %d \n", GetLastError());
-		goto _CLEANUP;
-	}
-
-	pBuff = (PBYTE)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwFileSize);
-	if (pBuff == NULL) {
-		printf("\t[!] HeapAlloc for binary file Failed With Error : %d \n", GetLastError());
-		goto _CLEANUP;
-	}
-
-	printf("\t[*] Allocated buffer of binary file at: 0x%p\n\n", pBuff);
-
-	if (!ReadFile(hFile, pBuff, dwFileSize, &dwNumberOfBytesRead, NULL) || dwFileSize != dwNumberOfBytesRead) {
-		printf("\t[!] ReadFile for binary file Failed With Error : %d \n", GetLastError());
-		printf("\t[!] Bytes Read for binary file: %d of : %d \n\n", dwNumberOfBytesRead, dwFileSize);
-		goto _CLEANUP;
-	}
-
-
-_CLEANUP:
-	*pFile = (PBYTE)pBuff;
-	*sFile = (SIZE_T)dwFileSize;
-	if (hFile)
-		CloseHandle(hFile);
-	if (*pFile == NULL || *sFile == NULL)
-		return FALSE;
-	return TRUE;
-}
 
