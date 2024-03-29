@@ -14,7 +14,7 @@ Payload used for test.
 
 ## Usage
 ```sh
-.\inserter.exe -p <shellcode/payload.bin> -s <new section name> -e <pe path> -o <output pe name>
+.\inserter.exe -e <PE> -p <shellcode/payload.bin> -s <new section name>
 ```
 
 For more information, visit my journal: https://oblivions-research.gitbook.io/
